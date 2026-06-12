@@ -1,0 +1,18 @@
+{
+  "models": [
+    {
+      "id": "modal-glm-5.1",
+      "name": "Modal-GLM-5.1",
+      "vendor": "openai",
+      "apiKey": "modalresearch_AZ5vv6y73De1RCSgwQF1DgpYyK_u-dT0nKUVy7dBBYQ",
+      "baseURL": "https://api.us-west-2.modal.direct/v1",
+      "model": "zai-org/GLM-5.1-FP8",
+      "contextWindow": 65536
+	  "maxInputTokens": 128000
+	  "maxOutputTokens": 8192,
+      "supportsToolCall": true,
+      "supportsImages": false,
+      "supportsReasoning": true
+    }
+  ]
+}
