@@ -84,6 +84,11 @@ def print_config_summary(config):
     global_kw = config.get("global_keywords", [])
     logger.info("=" * 50)
     logger.info("当前监控配置:")
+    select_mode = config.get("select", 1)
+    if select_mode == 0:
+        logger.info("  模式: 任何人发特定内容自动回复 (select=0)")
+    else:
+        logger.info("  模式: 特定人发特定内容自动回复 (select=1)")
     for group_name, info in groups.items():
         members = info["members"]
         keywords = info["keywords"]
@@ -602,7 +607,11 @@ def process_messages(msgs, enabled_groups, scheduler, config, msg_tracker):
                     logger.debug(f"[重复消息跳过] {group_name} - {sender_for_dedup}: {content_str[:50]}")
                     continue
 
-                # === 触发判定（OR 逻辑）===
+                # === 触发判定 ===
+                # select=1: 人员+关键字 OR 逻辑（特定人发特定内容才回复）
+                # select=0: 仅关键字匹配即触发（任何人发特定内容都回复）
+                select_mode = config.get("select", 1)
+
                 # 1. 关键字触发：消息包含关键字（优先计算，sender未知时也可靠）
                 matched_keyword = check_keywords(content_str, group_keywords, global_keywords)
                 is_keyword_match = matched_keyword is not None
@@ -611,9 +620,6 @@ def process_messages(msgs, enabled_groups, scheduler, config, msg_tracker):
                 if sender:
                     is_member_match = (not monitored_members) or (sender in monitored_members)
                 else:
-                    # 无法获取发送者时（微信4.1+ mmui不暴露sender）:
-                    # - 如果没有配置监控人员（列表为空=监控所有人），视为匹配
-                    # - 如果配置了监控人员，则无法确认，只依赖关键字匹配
                     is_member_match = not monitored_members
                     if monitored_members and not is_keyword_match:
                         logger.debug(
@@ -621,11 +627,19 @@ def process_messages(msgs, enabled_groups, scheduler, config, msg_tracker):
                             f"仅关键字可触发 (内容: {content_str[:50]})"
                         )
 
-                # 两者都不匹配则跳过（但先标记已处理，避免重复检测）
-                if not is_member_match and not is_keyword_match:
-                    msg_tracker.mark_processed(group_name, sender_for_dedup, content_str)
-                    scheduler.stats["skipped_filter"] += 1
-                    continue
+                # 根据 select 模式决定是否命中
+                if select_mode == 0:
+                    # select=0: 只要有关键字匹配就触发，不看人
+                    if not is_keyword_match:
+                        msg_tracker.mark_processed(group_name, sender_for_dedup, content_str)
+                        scheduler.stats["skipped_filter"] += 1
+                        continue
+                else:
+                    # select=1: 人员 OR 关键字（原始逻辑，特定人发特定内容才回复）
+                    if not is_member_match and not is_keyword_match:
+                        msg_tracker.mark_processed(group_name, sender_for_dedup, content_str)
+                        scheduler.stats["skipped_filter"] += 1
+                        continue
 
                 # 标记消息已处理
                 msg_tracker.mark_processed(group_name, sender_for_dedup, content_str)
