@@ -23,6 +23,8 @@ from pathlib import Path
 # ============================================================
 LOG_DIR = Path(__file__).parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
+KEYWORD_LOG_DIR = Path(__file__).parent / "keyword_records"
+KEYWORD_LOG_DIR.mkdir(exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -527,6 +529,18 @@ class ReplyScheduler:
 # ============================================================
 
 
+def record_keyword_message(group_name, sender, content, matched_keyword):
+    """将含关键字的消息记录到文件，格式：时间  发送人  消息内容  命中关键字"""
+    now = datetime.now()
+    record_file = KEYWORD_LOG_DIR / f"keyword_{now.strftime('%Y%m')}.txt"
+    line = f"{now.strftime('%Y-%m-%d %H:%M:%S')}\t{sender}\t{content}\t{matched_keyword}\t{group_name}\n"
+    try:
+        with open(record_file, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception as e:
+        logger.error(f"记录关键字消息失败: {e}")
+
+
 def check_keywords(text, group_keywords, global_keywords):
     """
     检查消息文本中是否包含监控关键字
@@ -564,8 +578,12 @@ def process_messages(msgs, enabled_groups, scheduler, config, msg_tracker):
         except AttributeError:
             group_name = str(chat)
 
+        # === 诊断日志：所有收到的群消息 ===
+        logger.info(f"[原始消息] 群={group_name}, 消息数={len(msg_list)}, 启用群列表={list(enabled_groups.keys())}")
+
         # 只处理启用的群
         if group_name not in enabled_groups:
+            logger.info(f"[跳过] 群「{group_name}」不在启用列表中")
             continue
 
         group_info = enabled_groups[group_name]
@@ -574,6 +592,9 @@ def process_messages(msgs, enabled_groups, scheduler, config, msg_tracker):
 
         for one_msg in msg_list:
             try:
+                # === 诊断：原始消息对象 ===
+                logger.info(f"[原始msg] type={type(one_msg).__name__}, repr={repr(one_msg)[:300]}")
+
                 # 兼容新旧 wxauto 消息格式
                 if hasattr(one_msg, "type"):
                     msg_type = one_msg.type
@@ -600,6 +621,12 @@ def process_messages(msgs, enabled_groups, scheduler, config, msg_tracker):
 
                 content_str = str(msg_content)
 
+                # === 诊断日志 ===
+                logger.info(
+                    f"[收到消息] {group_name} | type={msg_type} | "
+                    f"sender={sender} | content={content_str[:80]}"
+                )
+
                 # === 消息去重检查 ===
                 sender_for_dedup = sender or "unknown"
                 if msg_tracker.is_processed(group_name, sender_for_dedup, content_str):
@@ -615,6 +642,13 @@ def process_messages(msgs, enabled_groups, scheduler, config, msg_tracker):
                 # 1. 关键字触发：消息包含关键字（优先计算，sender未知时也可靠）
                 matched_keyword = check_keywords(content_str, group_keywords, global_keywords)
                 is_keyword_match = matched_keyword is not None
+
+                # === 诊断日志 ===
+                logger.info(
+                    f"[触发判定] {group_name} | select={select_mode} | "
+                    f"keyword_match={is_keyword_match}(hit={matched_keyword}) | "
+                    f"sender={sender} | members={monitored_members}"
+                )
 
                 # 2. 人员触发：发言人在监控列表中
                 if sender:
@@ -655,6 +689,7 @@ def process_messages(msgs, enabled_groups, scheduler, config, msg_tracker):
                         f"[关键字命中] {group_name}: {content_preview} "
                         f"(命中: {matched_keyword})"
                     )
+                    record_keyword_message(group_name, sender, content_str, matched_keyword)
                 elif is_member_match:
                     logger.info(f"[人员消息] {group_name} - {sender}: {content_preview}")
 
